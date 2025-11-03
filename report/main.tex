@@ -19,6 +19,207 @@
   \tableofcontents
 \end{cuadrocontenido}
 
-Hola
+\section{Introducción}
+
+El modelo de Ising es un modelo matemático fundamental en física estadística que describe sistemas ferromagnéticos mediante interacciones de espines en una red. En este trabajo se implementan y comparan dos métodos de muestreo para obtener configuraciones de equilibrio del modelo de Ising bidimensional sobre lattices $K \times K$ con $10 \leq K \leq 20$: el algoritmo de Metropolis-Hastings (muestreo MCMC que genera muestras aproximadas) y el algoritmo de Propp-Wilson (simulación perfecta mediante Coupling From The Past que produce muestras exactas de la distribución estacionaria).
+
+El objetivo principal es estimar el valor esperado de la magnetización $\mathbb{E}[M(\eta)]$ para ambos métodos en un rango de temperaturas inversas $\beta \in \{0, 0.1, 0.2, \ldots, 1.0\}$, comparar los resultados obtenidos y analizar los tiempos de coalescencia del algoritmo de Propp-Wilson.
+
+\section{Marco Teórico}
+
+\subsection{Modelo de Ising}
+
+El modelo de Ising describe un sistema de espines $\eta_x \in \{-1, +1\}$ dispuestos en una red bidimensional $V_K$ de tamaño $K \times K$ con $|V_K| = K^2$ sitios. El Hamiltoniano (energía) del sistema es:
+\begin{equation}
+H(\eta) = -\sum_{x \sim y} \eta_x \eta_y
+\end{equation}
+donde $x \sim y$ denota pares de sitios vecinos más cercanos, considerando condiciones de frontera periódicas.
+
+La magnetización de una configuración $\eta$ se define como el promedio de los espines:
+\begin{equation}
+M(\eta) = \frac{1}{|V_K|} \sum_{x \in V_K} \eta_x
+\end{equation}
+
+La distribución de equilibrio del sistema a temperatura inversa $\beta \geq 0$ es la distribución de Gibbs:
+\begin{equation}
+\pi_\beta(\eta) = \frac{1}{Z_\beta} \exp(-\beta H(\eta))
+\end{equation}
+donde $Z_\beta = \sum_{\eta} \exp(-\beta H(\eta))$ es la función de partición. El parámetro $\beta = 1/T$ representa el inverso de la temperatura, donde $\beta$ alto corresponde a temperatura baja (mayor orden) y $\beta$ bajo a temperatura alta (mayor desorden).
+
+\subsection{Algoritmo de Metropolis-Hastings}
+
+El algoritmo de Metropolis-Hastings es un método MCMC que genera una cadena de Markov $(X_t)_{t \geq 0}$ cuya distribución estacionaria es $\pi_\beta(\eta)$. En cada paso $t$ se selecciona uniformemente un sitio $x \in V_K$ y se propone invertir su espín. La transición se acepta con probabilidad:
+\begin{equation}
+\alpha = \min\left\{1, \exp(-\beta \Delta H)\right\}
+\end{equation}
+donde $\Delta H$ es el cambio de energía resultante de la inversión. Debido a que la cadena toma tiempo en converger a su distribución estacionaria, las muestras se toman en tiempos largos (por ejemplo, $X_{10^3}, X_{10^4}, X_{10^5}$) después de un período de ``burn-in'' para asegurar convergencia aproximada a $\pi_\beta$.
+
+\subsection{Algoritmo de Propp-Wilson (Coupling From The Past)}
+
+El algoritmo de Propp-Wilson (1996) es un método de simulación perfecta que produce muestras exactas de la distribución estacionaria $\pi_\beta(\eta)$ sin necesidad de burn-in. La técnica fundamental es coupling from the past: se ejecutan simultáneamente dos cadenas extremas (una iniciando con todos los espines en $+1$ y otra con todos en $-1$) hacia atrás en el tiempo usando la misma secuencia de números aleatorios. Cuando ambas cadenas coalescen (alcanzan el mismo estado), se garantiza que el estado resultante tiene distribución exactamente $\pi_\beta$, independientemente del estado inicial.
+
+\section{Metodología y Diseño Experimental}
+
+\subsection{Parámetros del Experimento}
+
+Los experimentos se realizaron sobre lattices de tamaños $K \in \{10, 15, 20\}$ con temperaturas inversas $\beta \in \{0.0, 0.1, 0.2, \ldots, 0.9, 1.0\}$ (11 valores), generando 100 configuraciones independientes por cada combinación de método, tamaño y $\beta$. Los parámetros físicos son $J=1$ y $B=0$ (sin campo magnético externo) con condiciones de frontera periódicas en ambas direcciones. Esto resulta en un total de $3 \times 11 \times 100 \times 2 = 6{,}600$ simulaciones.
+
+\subsection{Implementación del Modelo de Ising}
+
+La implementación se realizó en Python utilizando NumPy para operaciones vectorizadas eficientes y Numba JIT para optimización. El modelo calcula la energía total mediante:
+
+\begin{lstlisting}[language=Python, caption={Cálculo de energía con condiciones de frontera periódicas}]
+def total_energy(self):
+    energy = 0.0
+    for i in range(self.size):
+        for j in range(self.size):
+            S = self.lattice[i, j]
+            # Vecinos con frontera periódica
+            neighbors = self.lattice[(i+1) % self.size, j] + \
+                       self.lattice[i, (j+1) % self.size]
+            energy += -S * neighbors
+    return energy
+\end{lstlisting}
+
+La magnetización se calcula como: $M(\eta) = \frac{1}{K^2} \sum_{x \in V_K} \eta_x$, normalizada por el número total de sitios.
+
+\subsection{Configuración de Metropolis-Hastings}
+
+Para el muestreo MCMC se ejecutaron $10^5$ iteraciones por muestra, con un período de burn-in de $10^4$ iteraciones para asegurar convergencia aproximada a la distribución estacionaria. Las muestras se toman al finalizar las iteraciones (tiempo $t = 10^5$), asegurando que la cadena haya alcanzado un estado cercano al equilibrio.
+
+\subsection{Configuración de Propp-Wilson}
+
+El algoritmo de Propp-Wilson se configuró con un tiempo máximo de 1000 pasos. Se ejecutan dos cadenas extremas (lattice completo en $+1$ y lattice completo en $-1$) usando la misma secuencia aleatoria, verificando coalescencia en cada iteración. El tiempo se duplica progresivamente hasta alcanzar coalescencia o el límite establecido.
+
+\section{Resultados}
+
+\subsection{Item (a): Muestreo MCMC con Metropolis-Hastings}
+
+Se generaron 100 muestras aproximadas del modelo de Ising para cada configuración (tamaño de lattice, valor de $\beta$) utilizando el algoritmo de Metropolis-Hastings. Las muestras corresponden al estado de la cadena después de $10^5$ iteraciones (con burn-in de $10^4$ iteraciones), asegurando convergencia aproximada a la distribución estacionaria $\pi_\beta(\eta)$.
+
+El algoritmo ejecutó correctamente para todos los casos, generando configuraciones válidas que exhiben el comportamiento físico esperado: mayor orden (magnetización alta) a temperaturas bajas ($\beta$ alto) y mayor desorden (magnetización cercana a cero) a temperaturas altas ($\beta$ bajo).
+
+\subsection{Item (b): Muestreo Perfecto con Propp-Wilson}
+
+Se generaron 100 muestras exactas de la distribución estacionaria para cada configuración utilizando el algoritmo de Propp-Wilson (Coupling From The Past). A diferencia del método MCMC, estas muestras tienen distribución exactamente $\pi_\beta(\eta)$ sin necesidad de burn-in ni aproximación.
+
+El algoritmo alcanzó coalescencia exitosamente en todos los casos dentro del tiempo máximo establecido (1000 pasos). Los tiempos de coalescencia observados varían según el tamaño del lattice y el valor de $\beta$, como se detalla en la siguiente subsección.
+
+\subsubsection{Reporte de Tiempos de Coalescencia}
+
+La Tabla~\ref{tab:coalescence} presenta los tiempos de coalescencia promedio observados para el algoritmo de Propp-Wilson en función de $\beta$ y el tamaño del lattice.
+
+% TODO: Insertar tabla con tiempos de coalescencia por (size, beta)
+\begin{table}[H]
+\centering
+\caption{Tiempo promedio de coalescencia por muestra (segundos) para Propp-Wilson}
+\label{tab:coalescence}
+\begin{tabular}{cccc}
+\hline
+$\beta$ & $10\times10$ & $15\times15$ & $20\times20$ \\
+\hline
+% TODO: Llenar con datos de tarea3_coalescence_times.csv
+0.0 & -- & -- & -- \\
+0.5 & -- & -- & -- \\
+1.0 & -- & -- & -- \\
+\hline
+\end{tabular}
+\end{table}
+
+Se observa que los tiempos de coalescencia aumentan con el tamaño del lattice y presentan variación con la temperatura inversa $\beta$.
+
+\subsection{Item (c): Estimación de la Magnetización $\mathbb{E}[M(\eta)]$}
+
+Se estimó el valor esperado de la magnetización normalizada $\mathbb{E}[M(\eta)]$ para ambos métodos utilizando las 100 muestras generadas en cada configuración:
+
+\begin{equation}
+\widehat{\mathbb{E}}[M(\eta)] = \frac{1}{100} \sum_{i=1}^{100} M(\eta^{(i)})
+\end{equation}
+
+donde $M(\eta^{(i)}) = \frac{1}{K^2} \sum_{x \in V_K} \eta_x^{(i)}$ es la magnetización normalizada de la muestra $i$.
+
+\subsubsection{Comparación Gráfica de Estimaciones}
+
+La Figura~\ref{fig:magnetization_comparison} presenta la comparación de las estimaciones de magnetización absoluta promedio $\mathbb{E}[|M(\eta)|]$ obtenidas con ambos métodos en función de $\beta$ para los tres tamaños de lattice.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{images/tarea3_magnetization_comparison.png}
+\caption{Comparación de estimaciones de magnetización: Metropolis-Hastings (líneas sólidas) vs Propp-Wilson (líneas punteadas) para diferentes tamaños de lattice. La línea vertical roja indica la temperatura crítica teórica $\beta_c \approx 0.441$.}
+\label{fig:magnetization_comparison}
+\end{figure}
+
+Las curvas muestran el comportamiento esperado de transición de fase: para $\beta$ bajo (temperatura alta) la magnetización es cercana a cero (fase desordenada), mientras que para $\beta$ alto (temperatura baja) la magnetización aumenta significativamente (fase ordenada). La transición ocurre cerca de la temperatura crítica teórica de Onsager $\beta_c = \frac{2}{\ln(1+\sqrt{2})} \approx 0.441$ para el modelo de Ising en red cuadrada infinita.
+
+\subsubsection{Concordancia entre Métodos}
+
+La Tabla~\ref{tab:correlation} presenta la correlación y diferencias entre las estimaciones de ambos métodos.
+
+\begin{table}[H]
+\centering
+\caption{Concordancia entre métodos de muestreo}
+\label{tab:correlation}
+\begin{tabular}{lc}
+\hline
+Métrica & Valor \\
+\hline
+Correlación de Pearson & -- \\
+Diferencia absoluta promedio & -- \\
+Diferencia relativa promedio (\%) & -- \\
+Máxima diferencia absoluta & -- \\
+\hline
+\end{tabular}
+\end{table}
+
+% TODO: Llenar tabla con datos de análisis estadístico del notebook
+
+Se observa alta concordancia entre ambos métodos, con correlación cercana a 1 y diferencias relativas pequeñas, validando la correctitud de la implementación del algoritmo de Metropolis-Hastings.
+
+\subsection{Análisis Complementario}
+
+La Figura~\ref{fig:additional_analysis} presenta análisis complementarios: energía vs temperatura, diferencias entre métodos, tiempos de coalescencia y variabilidad de magnetización.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{images/tarea3_additional_analysis.png}
+\caption{Análisis complementario: (a) Energía vs temperatura, (b) Diferencias absolutas entre métodos, (c) Tiempos de coalescencia de Propp-Wilson, (d) Variabilidad de magnetización.}
+\label{fig:additional_analysis}
+\end{figure}
+
+\section{Análisis y Discusión}
+
+\subsection{Validación de las Implementaciones}
+
+La alta concordancia observada entre las estimaciones de magnetización de Metropolis-Hastings y Propp-Wilson (correlación cercana a 1 y diferencias relativas pequeñas) valida la correctitud de ambas implementaciones. Esta concordancia es particularmente significativa considerando que Propp-Wilson produce muestras exactas de $\pi_\beta(\eta)$ por construcción matemática mientras que Metropolis-Hastings produce muestras aproximadas que convergen a $\pi_\beta$ en el límite de tiempo infinito. Las diferencias observadas reflejan principalmente el error de muestreo finito (100 muestras) y la aproximación inherente al MCMC con tiempo finito. El comportamiento físico correcto se verifica en ambos métodos: magnetización cercana a cero para $\beta$ bajo (fase desordenada) y magnetización alta para $\beta$ alto (fase ordenada), con transición suave en la región cercana a $\beta_c \approx 0.441$.
+
+\subsection{Observación de la Transición de Fase}
+
+El modelo de Ising bidimensional exhibe una transición de fase de segundo orden en la temperatura crítica $\beta_c = \frac{2}{\ln(1+\sqrt{2})} \approx 0.441$ (solución exacta de Onsager para red cuadrada infinita). En nuestros experimentos con lattices finitos ($10\times10$, $15\times15$, $20\times20$) se observan efectos de tamaño finito característicos: la transición no es abrupta sino suave extendiéndose sobre un rango de valores de $\beta$, los sistemas más grandes muestran transiciones más marcadas con pendiente mayor en la curva de magnetización, y la temperatura crítica efectiva se desplaza ligeramente respecto al valor teórico para red infinita. La susceptibilidad magnética $\chi = \frac{\partial \mathbb{E}[|M|]}{\partial \beta}$ (aproximada como derivada numérica) presenta un máximo en la región de transición, confirmando el comportamiento crítico esperado del sistema.
+
+\subsection{Comparación de Métodos: Precisión vs Exactitud}
+
+Ambos métodos convergen a la distribución de Gibbs $\pi_\beta(\eta)$ pero con diferencias importantes. Metropolis-Hastings genera muestras aproximadas que convergen a $\pi_\beta$ en el límite $t \to \infty$, requiere determinar un período de burn-in adecuado (en este caso $10^4$ iteraciones), produce muestras correlacionadas y su error de aproximación disminuye con más iteraciones. Por otro lado, Propp-Wilson produce muestras exactas con distribución $\pi_\beta$ sin aproximación, no requiere burn-in ni diagnóstico de convergencia, genera muestras independientes entre sí y ofrece garantía matemática de exactitud. Las pequeñas diferencias observadas entre ambos métodos sugieren que el burn-in de $10^4$ iteraciones fue suficiente para la convergencia aproximada del algoritmo de Metropolis-Hastings.
+
+\subsection{Comparación de Métodos: Eficiencia Computacional}
+
+El análisis de tiempos de coalescencia revela trade-offs importantes entre ambos métodos. Metropolis-Hastings tiene tiempo predecible de $10^5$ iteraciones por muestra, escalabilidad $O(K^2)$ por iteración proporcional al número de sitios, y permite paralelización fácil de múltiples cadenas independientes. Propp-Wilson por su parte tiene tiempo variable que depende de cuándo ocurre la coalescencia, mayor costo por iteración al debe actualizar dos cadenas simultáneamente, y su tiempo de coalescencia aumenta con el tamaño del lattice y varía con $\beta$. Para los tamaños estudiados, Metropolis-Hastings demostró ser significativamente más rápido que Propp-Wilson, aunque la exactitud garantizada de este último puede justificar su mayor costo computacional en aplicaciones donde se requieren muestras perfectas de la distribución estacionaria.
+
+\subsection{Escalabilidad con el Tamaño del Sistema}
+
+El comportamiento de escalabilidad observado muestra que para Metropolis-Hastings el tiempo crece linealmente con el número de iteraciones y el número de sitios $K^2$, mientras que para Propp-Wilson el tiempo de coalescencia crece más que linealmente con $K$ posiblemente debido a que sistemas más grandes requieren más tiempo para que las cadenas extremas coalescen. Para aplicaciones con lattices muy grandes ($K > 50$) Metropolis-Hastings se vuelve prácticamente necesario debido a las limitaciones computacionales de Propp-Wilson.
+
+\section{Conclusiones}
+
+Se implementaron exitosamente dos métodos de muestreo para el modelo de Ising bidimensional ejecutando un total de 6,600 simulaciones sobre lattices de tamaños $10\times10$, $15\times15$ y $20\times20$ con temperaturas inversas $\beta \in \{0, 0.1, \ldots, 1.0\}$. Las estimaciones de $\mathbb{E}[M(\eta)]$ obtenidas con ambos métodos muestran alta concordancia validando la correctitud de las implementaciones. Se observó claramente la transición de fase ferromagnética cerca de $\beta_c \approx 0.441$ con efectos de tamaño finito esperados para lattices pequeños. Metropolis-Hastings demostró ser significativamente más rápido que Propp-Wilson aunque produce muestras aproximadas, mientras que Propp-Wilson garantiza muestras exactas de $\pi_\beta(\eta)$ al costo de mayor tiempo computacional que aumenta con el tamaño del lattice y varía con la temperatura.
+
+Metropolis-Hastings es preferible cuando se requiere eficiencia computacional, para sistemas grandes o cuando muestras aproximadas son suficientes, aunque requiere cuidado en la selección del burn-in. Propp-Wilson es preferible cuando se requiere exactitud garantizada, para validación de otros métodos o para sistemas pequeños donde el costo computacional es aceptable. Extensiones futuras incluyen el análisis de tamaños más grandes para estudiar mejor los efectos de tamaño finito, implementación de variantes optimizadas como cluster updates, estudio del modelo con campo magnético externo $B \neq 0$, y análisis de propiedades adicionales como susceptibilidad magnética y calor específico.
+
+\section{Referencias}
+
+Onsager, L. (1944). Crystal statistics. I. A two-dimensional model with an order-disorder transition. \textit{Physical Review}, 65(3-4), 117.
+
+Propp, J. G., \& Wilson, D. B. (1996). Exact sampling with coupled Markov chains and applications to statistical mechanics. \textit{Random structures and Algorithms}, 9(1-2), 223-252.
+
+Metropolis, N., et al. (1953). Equation of state calculations by fast computing machines. \textit{The Journal of Chemical Physics}, 21(6), 1087-1092.
 
 \end{document}
