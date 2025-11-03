@@ -25,6 +25,9 @@ dependencies:
 
   # Utilidades
   - tqdm>=4.65
+  
+  # Compilación JIT para optimización
+  - numba>=0.58
 
   # pip dependencies
   - pip
